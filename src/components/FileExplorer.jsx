@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import {
     Folder, File, ArrowLeft, RefreshCw, Trash2, Download,
-    Home, Eye, FileText, Image, Video, Music, AlertCircle,
+    Home, Eye, EyeOff, FileText, Image, Video, Music, AlertCircle,
     ArrowUpDown, ArrowUp, ArrowDown, Square, CheckSquare, X
 } from 'lucide-react'
 import MediaViewer from './MediaViewer'
@@ -17,6 +17,7 @@ export default function FileExplorer() {
     const [sortBy, setSortBy] = useState('name') // name, size, date, type
     const [sortOrder, setSortOrder] = useState('asc') // asc, desc
     const [selectedPaths, setSelectedPaths] = useState(new Set()) // Multi-select
+    const [showHidden, setShowHidden] = useState(false) // Show/hide hidden files
 
     const fetchFiles = async (dirPath) => {
         setLoading(true)
@@ -75,9 +76,11 @@ export default function FileExplorer() {
         setSelectedPaths(new Set()) // Clear selection on path change
     }, [path])
 
-    // Sorted files with memoization
+    // Sorted and filtered files with memoization
     const sortedFiles = useMemo(() => {
-        const sorted = [...files]
+        // Filter hidden files if showHidden is false
+        const filtered = showHidden ? files : files.filter(f => !f.name.startsWith('.'))
+        const sorted = [...filtered]
 
         sorted.sort((a, b) => {
             // Folders always first
@@ -108,7 +111,7 @@ export default function FileExplorer() {
         })
 
         return sorted
-    }, [files, sortBy, sortOrder])
+    }, [files, sortBy, sortOrder, showHidden])
 
     const navigate = (newPath) => {
         if (newPath === path) return
@@ -235,6 +238,11 @@ export default function FileExplorer() {
         })
     }
 
+    // Get list of media files for navigation in viewer
+    const mediaFiles = useMemo(() => {
+        return sortedFiles.filter(f => !f.isDirectory && /\.(jpg|jpeg|png|gif|webp|svg|bmp|mp4|mkv|webm|avi|mov|m4v|mp3|wav|ogg|flac|m4a|aac)$/i.test(f.name))
+    }, [sortedFiles])
+
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
             {/* Media Viewer Modal */}
@@ -242,6 +250,9 @@ export default function FileExplorer() {
                 <MediaViewer
                     file={viewingFile}
                     onClose={() => setViewingFile(null)}
+                    mediaFiles={mediaFiles}
+                    onNavigate={(file) => setViewingFile(file)}
+                    onDelete={() => fetchFiles(path)}
                 />
             )}
 
@@ -265,15 +276,14 @@ export default function FileExplorer() {
                         placeholder="Enter path..."
                     />
 
-                    {path !== '/sdcard' && (
-                        <button
-                            className="icon-btn"
-                            onClick={() => navigate('/sdcard')}
-                            title="Go to /sdcard"
-                        >
-                            <Home size={20} />
-                        </button>
-                    )}
+                    <button
+                        className="icon-btn"
+                        onClick={() => navigate('/sdcard')}
+                        disabled={path === '/sdcard'}
+                        title="Go to /sdcard"
+                    >
+                        <Home size={20} />
+                    </button>
 
                     <button
                         className="icon-btn"
@@ -281,6 +291,14 @@ export default function FileExplorer() {
                         title="Refresh"
                     >
                         <RefreshCw size={20} className={loading ? 'spin' : ''} />
+                    </button>
+
+                    <button
+                        className={`icon-btn ${showHidden ? 'active' : ''}`}
+                        onClick={() => setShowHidden(!showHidden)}
+                        title={showHidden ? 'Hide hidden files' : 'Show hidden files'}
+                    >
+                        {showHidden ? <Eye size={20} /> : <EyeOff size={20} />}
                     </button>
                 </div>
             </div>
@@ -341,67 +359,77 @@ export default function FileExplorer() {
                             <span className="actions-header">Actions</span>
                         </div>
 
-                        {sortedFiles.map((file) => (
-                            <div
-                                key={file.path}
-                                className={`file-item ${selectedPaths.has(file.path) ? 'selected' : ''}`}
-                                onClick={() => file.isDirectory && navigate(file.path)}
-                            >
-                                <button
-                                    className="select-checkbox"
-                                    onClick={(e) => toggleSelect(file.path, e)}
+                        {sortedFiles.map((file) => {
+                            const isMedia = !file.isDirectory && ['image', 'video', 'audio'].includes(file.type)
+                            return (
+                                <div
+                                    key={file.path}
+                                    className={`file-item ${selectedPaths.has(file.path) ? 'selected' : ''}`}
+                                    onClick={() => {
+                                        if (file.isDirectory) {
+                                            navigate(file.path)
+                                        } else if (isMedia) {
+                                            setViewingFile(file)
+                                        }
+                                    }}
                                 >
-                                    {selectedPaths.has(file.path)
-                                        ? <CheckSquare size={20} />
-                                        : <Square size={20} />}
-                                </button>
-                                <div className={`icon-wrapper ${file.isDirectory ? 'folder' : (file.type || 'file')}`}>
-                                    {file.isDirectory ? <Folder size={24} /> : getFileIcon(file)}
-                                </div>
-
-                                <span className="file-name">{file.name}</span>
-
-                                <span className="file-size">
-                                    {file.sizeFormatted || '—'}
-                                </span>
-
-                                <span className="file-date">
-                                    {file.mtimeFormatted || '—'}
-                                </span>
-
-                                <span className="file-type">
-                                    {file.isDirectory ? 'Folder' : (file.type || 'File')}
-                                </span>
-
-                                <div className="file-actions">
-                                    {!file.isDirectory && (
-                                        <>
-                                            <button
-                                                className="action-btn"
-                                                onClick={(e) => handleView(file, e)}
-                                                title="View"
-                                            >
-                                                <Eye size={18} />
-                                            </button>
-                                            <button
-                                                className="action-btn"
-                                                onClick={(e) => handleDownload(file.path, e)}
-                                                title="Download"
-                                            >
-                                                <Download size={18} />
-                                            </button>
-                                        </>
-                                    )}
                                     <button
-                                        className="action-btn delete"
-                                        onClick={(e) => handleDelete(file.path, e)}
-                                        title="Delete"
+                                        className="select-checkbox"
+                                        onClick={(e) => toggleSelect(file.path, e)}
                                     >
-                                        <Trash2 size={18} />
+                                        {selectedPaths.has(file.path)
+                                            ? <CheckSquare size={20} />
+                                            : <Square size={20} />}
                                     </button>
+                                    <div className={`icon-wrapper ${file.isDirectory ? 'folder' : (file.type || 'file')}`}>
+                                        {file.isDirectory ? <Folder size={24} /> : getFileIcon(file)}
+                                    </div>
+
+                                    <span className="file-name">{file.name}</span>
+
+                                    <span className="file-size">
+                                        {file.sizeFormatted || '—'}
+                                    </span>
+
+                                    <span className="file-date">
+                                        {file.mtimeFormatted || '—'}
+                                    </span>
+
+                                    <span className="file-type">
+                                        {file.isDirectory ? 'Folder' : (file.type || 'File')}
+                                    </span>
+
+                                    <div className="file-actions">
+                                        {!file.isDirectory && (
+                                            <>
+                                                <button
+                                                    className="action-btn"
+                                                    onClick={(e) => handleView(file, e)}
+                                                    title="View"
+                                                >
+                                                    <Eye size={18} />
+                                                </button>
+                                                <button
+                                                    className="action-btn"
+                                                    onClick={(e) => handleDownload(file.path, e)}
+                                                    title="Download"
+                                                >
+                                                    <Download size={18} />
+                                                </button>
+                                            </>
+                                        )}
+                                        <button
+                                            className="action-btn delete"
+                                            onClick={(e) => handleDelete(file.path, e)}
+                                            title="Delete"
+                                        >
+                                            <Trash2 size={18} />
+                                        </button>
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
+                            )
+                        })}
+
 
                         {files.length === 0 && !loading && (
                             <div className="empty-state">

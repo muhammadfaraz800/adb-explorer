@@ -161,6 +161,11 @@ body {
   cursor: not-allowed;
 }
 
+.icon-btn.active {
+  color: #8ab4f8;
+  background-color: rgba(138, 180, 248, 0.15);
+}
+
 /* File List */
 .file-list {
   flex: 1;
@@ -745,6 +750,11 @@ body {
   color: #f28b82;
 }
 
+.media-viewer-actions .delete-btn:hover {
+  background-color: rgba(242, 139, 130, 0.3);
+  color: #f28b82;
+}
+
 .zoom-level {
   color: #9aa0a6;
   font-size: 12px;
@@ -759,6 +769,7 @@ body {
   justify-content: center;
   overflow: auto;
   padding: 24px;
+  position: relative;
 }
 
 .media-viewer-body img {
@@ -818,6 +829,43 @@ body {
   gap: 16px;
   color: #9aa0a6;
   text-align: center;
+}
+
+/* Media Viewer Navigation Arrows */
+.nav-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 48px;
+  height: 48px;
+  border: none;
+  border-radius: 50%;
+  background-color: rgba(0, 0, 0, 0.5);
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s, opacity 0.2s, transform 0.2s;
+  z-index: 10;
+}
+
+.nav-arrow:hover:not(.disabled) {
+  background-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-50%) scale(1.1);
+}
+
+.nav-arrow.nav-prev {
+  left: 24px;
+}
+
+.nav-arrow.nav-next {
+  right: 24px;
+}
+
+.nav-arrow.disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
 /* Download Manager */
