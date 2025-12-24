@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import {
     Folder, File, ArrowLeft, RefreshCw, Trash2, Download,
-    Home, Eye, FileText, Image, Video, Music, AlertCircle
+    Home, Eye, FileText, Image, Video, Music, AlertCircle,
+    ArrowUpDown, ArrowUp, ArrowDown
 } from 'lucide-react'
 import MediaViewer from './MediaViewer'
 
@@ -13,6 +14,8 @@ export default function FileExplorer() {
     const [history, setHistory] = useState(['/sdcard'])
     const [historyIndex, setHistoryIndex] = useState(0)
     const [viewingFile, setViewingFile] = useState(null)
+    const [sortBy, setSortBy] = useState('name') // name, size, date, type
+    const [sortOrder, setSortOrder] = useState('asc') // asc, desc
 
     const fetchFiles = async (dirPath) => {
         setLoading(true)
@@ -37,6 +40,41 @@ export default function FileExplorer() {
     useEffect(() => {
         fetchFiles(path)
     }, [path])
+
+    // Sorted files with memoization
+    const sortedFiles = useMemo(() => {
+        const sorted = [...files]
+
+        sorted.sort((a, b) => {
+            // Folders always first
+            if (a.isDirectory !== b.isDirectory) {
+                return a.isDirectory ? -1 : 1
+            }
+
+            let comparison = 0
+            switch (sortBy) {
+                case 'name':
+                    comparison = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+                    break
+                case 'size':
+                    comparison = (a.size || 0) - (b.size || 0)
+                    break
+                case 'date':
+                    comparison = (a.mtime || 0) - (b.mtime || 0)
+                    break
+                case 'type':
+                    comparison = (a.type || '').localeCompare(b.type || '')
+                    if (comparison === 0) comparison = a.name.localeCompare(b.name)
+                    break
+                default:
+                    comparison = a.name.localeCompare(b.name)
+            }
+
+            return sortOrder === 'asc' ? comparison : -comparison
+        })
+
+        return sorted
+    }, [files, sortBy, sortOrder])
 
     const navigate = (newPath) => {
         if (newPath === path) return
@@ -85,17 +123,8 @@ export default function FileExplorer() {
         setViewingFile(file)
     }
 
-    const getFileType = (name) => {
-        const ext = name.split('.').pop().toLowerCase()
-        if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext)) return 'image'
-        if (['mp4', 'mkv', 'webm', 'avi', 'mov', 'm4v'].includes(ext)) return 'video'
-        if (['mp3', 'wav', 'ogg', 'flac', 'm4a'].includes(ext)) return 'audio'
-        if (['txt', 'log', 'json', 'xml', 'md', 'html', 'css', 'js'].includes(ext)) return 'document'
-        return 'file'
-    }
-
-    const getFileIcon = (name) => {
-        const type = getFileType(name)
+    const getFileIcon = (file) => {
+        const type = file.type || 'file'
         switch (type) {
             case 'image': return <Image size={24} />
             case 'video': return <Video size={24} />
@@ -103,6 +132,22 @@ export default function FileExplorer() {
             case 'document': return <FileText size={24} />
             default: return <File size={24} />
         }
+    }
+
+    const toggleSort = (field) => {
+        if (sortBy === field) {
+            setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
+        } else {
+            setSortBy(field)
+            setSortOrder('asc')
+        }
+    }
+
+    const SortIcon = ({ field }) => {
+        if (sortBy !== field) return <ArrowUpDown size={14} className="sort-icon inactive" />
+        return sortOrder === 'asc'
+            ? <ArrowUp size={14} className="sort-icon active" />
+            : <ArrowDown size={14} className="sort-icon active" />
     }
 
     return (
@@ -170,21 +215,47 @@ export default function FileExplorer() {
                     </div>
                 ) : (
                     <>
+                        {/* Sort Header */}
                         <div className="file-list-header">
-                            <span>Name</span>
+                            <div className="header-icon-spacer"></div>
+                            <button className="sort-btn name" onClick={() => toggleSort('name')}>
+                                Name <SortIcon field="name" />
+                            </button>
+                            <button className="sort-btn size" onClick={() => toggleSort('size')}>
+                                Size <SortIcon field="size" />
+                            </button>
+                            <button className="sort-btn date" onClick={() => toggleSort('date')}>
+                                Modified <SortIcon field="date" />
+                            </button>
+                            <button className="sort-btn type" onClick={() => toggleSort('type')}>
+                                Type <SortIcon field="type" />
+                            </button>
+                            <span className="actions-header">Actions</span>
                         </div>
 
-                        {files.map((file) => (
+                        {sortedFiles.map((file) => (
                             <div
                                 key={file.path}
                                 className="file-item"
                                 onClick={() => file.isDirectory && navigate(file.path)}
                             >
-                                <div className={`icon-wrapper ${file.isDirectory ? 'folder' : getFileType(file.name)}`}>
-                                    {file.isDirectory ? <Folder size={24} /> : getFileIcon(file.name)}
+                                <div className={`icon-wrapper ${file.isDirectory ? 'folder' : (file.type || 'file')}`}>
+                                    {file.isDirectory ? <Folder size={24} /> : getFileIcon(file)}
                                 </div>
 
                                 <span className="file-name">{file.name}</span>
+
+                                <span className="file-size">
+                                    {file.sizeFormatted || '—'}
+                                </span>
+
+                                <span className="file-date">
+                                    {file.mtimeFormatted || '—'}
+                                </span>
+
+                                <span className="file-type">
+                                    {file.isDirectory ? 'Folder' : (file.type || 'File')}
+                                </span>
 
                                 <div className="file-actions">
                                     {!file.isDirectory && (

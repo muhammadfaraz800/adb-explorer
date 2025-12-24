@@ -23,6 +23,18 @@ const escapeShellPath = (p) => {
     return `'${p.replace(/'/g, "'\"'\"'")}'`;
 };
 
+// Format bytes to human-readable string
+const formatBytes = (bytes) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+};
+
+// Cache for folder sizes: { path: { mtime, size, sizeFormatted } }
+const folderSizeCache = new Map();
+
 // Helper to run ADB commands
 const runAdb = (command) => {
     return new Promise((resolve) => {
@@ -64,38 +76,136 @@ app.post('/api/connect', async (req, res) => {
     res.json({ stdout });
 });
 
-// List files
+// List files with metadata
 app.get('/api/files', async (req, res) => {
     const dirPath = req.query.path || '/sdcard';
+    // Ensure trailing slash to list directory contents (not symlink itself)
+    const pathWithSlash = dirPath.endsWith('/') ? dirPath : dirPath + '/';
+    const escapedPath = escapeShellPath(pathWithSlash);
 
-    // Use single-quote escaping for the Android shell
-    const escapedPath = escapeShellPath(dirPath);
-    const { stdout, stderr, error } = await runAdb(`shell ls -1p ${escapedPath}`);
+    // Use ls -la to get file details (works reliably on Windows+ADB)
+    const { stdout, stderr, error } = await runAdb(`shell ls -la ${escapedPath}`);
 
     if (error && (stderr.includes('No such file') || stderr.includes('not found') || stderr.includes('No such directory'))) {
         return res.status(404).json({ error: 'Path not found' });
     }
 
-    // Parse output
+    // Parse ls -la output
+    // Format: drwxrwxr-x  2 root sdcard_rw  4096 2024-01-15 10:30 filename
+    // Or:     -rw-rw----  1 root sdcard_rw 12345 2024-01-15 10:30 filename
     const lines = stdout.split(/[\r\n]+/).filter(Boolean);
-    const files = lines.map(name => {
-        const isDirectory = name.endsWith('/');
-        const cleanName = isDirectory ? name.slice(0, -1) : name;
-        return {
-            name: cleanName,
-            isDirectory,
-            path: dirPath === '/' ? `/${cleanName}` : `${dirPath}/${cleanName}`
-        };
-    });
+    const files = [];
 
-    // Sort: Dirs first, then files
+    for (const line of lines) {
+        // Skip total line and parent directory entries
+        if (line.startsWith('total') || line.trim() === '') continue;
+
+        // Parse ls -la format: permissions links owner group size date time name
+        // Handle filenames with spaces by taking everything after the 7th field
+        const parts = line.split(/\s+/);
+        if (parts.length < 8) continue;
+
+        const permissions = parts[0];
+        const size = parseInt(parts[4], 10) || 0;
+        const dateStr = parts[5]; // YYYY-MM-DD
+        const timeStr = parts[6]; // HH:MM
+        const name = parts.slice(7).join(' '); // Handle names with spaces
+
+        // Skip . and .. entries
+        if (name === '.' || name === '..') continue;
+
+        const isDirectory = permissions.startsWith('d');
+        const isLink = permissions.startsWith('l');
+        const ext = name.includes('.') && !isDirectory ? name.split('.').pop().toLowerCase() : '';
+
+        // Parse date/time
+        let mtime = 0;
+        try {
+            mtime = new Date(`${dateStr}T${timeStr}:00`).getTime();
+        } catch (e) {
+            mtime = Date.now();
+        }
+
+        // Handle symlinks (name contains " -> target")
+        const displayName = isLink ? name.split(' -> ')[0] : name;
+
+        files.push({
+            name: displayName,
+            isDirectory,
+            isLink,
+            path: dirPath === '/' ? `/${displayName}` : `${dirPath}/${displayName}`,
+            size,
+            sizeFormatted: formatBytes(size),
+            mtime,
+            mtimeFormatted: new Date(mtime).toLocaleString(),
+            type: isDirectory ? 'folder' : getFileCategory(ext),
+            extension: ext
+        });
+    }
+
+    // Calculate actual directory sizes using du -s (with caching)
+    const directories = files.filter(f => f.isDirectory);
+
+    // Check cache first - only calculate sizes for folders with changed mtime
+    const needsCalculation = [];
+    for (const dir of directories) {
+        const cached = folderSizeCache.get(dir.path);
+        if (cached && cached.mtime === dir.mtime) {
+            // Use cached size
+            dir.size = cached.size;
+            dir.sizeFormatted = cached.sizeFormatted;
+        } else {
+            needsCalculation.push(dir);
+        }
+    }
+
+    // Calculate sizes only for folders that need it (in parallel, max 5 at a time)
+    const chunkSize = 5;
+    for (let i = 0; i < needsCalculation.length; i += chunkSize) {
+        const chunk = needsCalculation.slice(i, i + chunkSize);
+        await Promise.all(chunk.map(async (dir) => {
+            try {
+                const escapedDirPath = escapeShellPath(dir.path);
+                const { stdout: duOut } = await runAdb(`shell du -s ${escapedDirPath}`);
+                // du -s output: "12345\t/path/to/dir" (size in KB)
+                const match = duOut.match(/^(\d+)/);
+                if (match) {
+                    const sizeKB = parseInt(match[1], 10);
+                    dir.size = sizeKB * 1024; // Convert KB to bytes
+                    dir.sizeFormatted = formatBytes(dir.size);
+                    // Cache the result
+                    folderSizeCache.set(dir.path, {
+                        mtime: dir.mtime,
+                        size: dir.size,
+                        sizeFormatted: dir.sizeFormatted
+                    });
+                }
+            } catch (e) {
+                // Keep original size if du fails
+            }
+        }));
+    }
+
+    // Default sort: folders first, then by name
     files.sort((a, b) => {
-        if (a.isDirectory === b.isDirectory) return a.name.localeCompare(b.name);
-        return a.isDirectory ? -1 : 1;
+        if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+        return a.name.localeCompare(b.name);
     });
 
     res.json({ path: dirPath, files });
 });
+
+// Helper to categorize files
+function getFileCategory(ext) {
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].includes(ext)) return 'image';
+    if (['mp4', 'mkv', 'webm', 'avi', 'mov', 'm4v'].includes(ext)) return 'video';
+    if (['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac'].includes(ext)) return 'audio';
+    if (['txt', 'log', 'json', 'xml', 'md', 'html', 'css', 'js'].includes(ext)) return 'document';
+    if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) return 'archive';
+    if (['apk'].includes(ext)) return 'app';
+    if (['pdf'].includes(ext)) return 'pdf';
+    return 'file';
+}
 
 // Delete file/dir
 app.post('/api/delete', async (req, res) => {
@@ -232,14 +342,7 @@ app.get('/api/stream', async (req, res) => {
     }
 });
 
-// Helper to format bytes
-function formatBytes(bytes) {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
+
 
 // === PARALLEL CHUNK DOWNLOAD ENDPOINTS ===
 
