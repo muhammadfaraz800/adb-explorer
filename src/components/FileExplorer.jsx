@@ -26,6 +26,12 @@ export default function FileExplorer() {
             const data = await res.json()
             if (res.ok) {
                 setFiles(data.files || [])
+
+                // Start background folder size calculation
+                const folders = (data.files || []).filter(f => f.isDirectory).map(f => f.path)
+                if (folders.length > 0) {
+                    fetchFolderSizes(folders)
+                }
             } else {
                 setError(data.error)
                 setFiles([])
@@ -35,6 +41,32 @@ export default function FileExplorer() {
             setFiles([])
         } finally {
             setLoading(false)
+        }
+    }
+
+    // Fetch folder sizes in background via SSE
+    const fetchFolderSizes = (folders) => {
+        const url = `http://localhost:3001/api/folder-sizes?folders=${encodeURIComponent(JSON.stringify(folders))}`
+        const eventSource = new EventSource(url)
+
+        eventSource.onmessage = (event) => {
+            const data = JSON.parse(event.data)
+
+            if (data.done) {
+                eventSource.close()
+                return
+            }
+
+            // Update the specific folder's size
+            setFiles(prev => prev.map(file =>
+                file.path === data.path
+                    ? { ...file, size: data.size, sizeFormatted: data.sizeFormatted }
+                    : file
+            ))
+        }
+
+        eventSource.onerror = () => {
+            eventSource.close()
         }
     }
 

@@ -32,9 +32,6 @@ const formatBytes = (bytes) => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 };
 
-// Cache for folder sizes: { path: { mtime, size, sizeFormatted } }
-const folderSizeCache = new Map();
-
 // Helper to run ADB commands
 const runAdb = (command) => {
     return new Promise((resolve) => {
@@ -143,47 +140,11 @@ app.get('/api/files', async (req, res) => {
         });
     }
 
-    // Calculate actual directory sizes using du -s (with caching)
-    const directories = files.filter(f => f.isDirectory);
-
-    // Check cache first - only calculate sizes for folders with changed mtime
-    const needsCalculation = [];
-    for (const dir of directories) {
-        const cached = folderSizeCache.get(dir.path);
-        if (cached && cached.mtime === dir.mtime) {
-            // Use cached size
-            dir.size = cached.size;
-            dir.sizeFormatted = cached.sizeFormatted;
-        } else {
-            needsCalculation.push(dir);
+    // Show "Loading..." for folder sizes - will be calculated separately
+    for (const file of files) {
+        if (file.isDirectory) {
+            file.sizeFormatted = 'Loading...';
         }
-    }
-
-    // Calculate sizes only for folders that need it (in parallel, max 5 at a time)
-    const chunkSize = 5;
-    for (let i = 0; i < needsCalculation.length; i += chunkSize) {
-        const chunk = needsCalculation.slice(i, i + chunkSize);
-        await Promise.all(chunk.map(async (dir) => {
-            try {
-                const escapedDirPath = escapeShellPath(dir.path);
-                const { stdout: duOut } = await runAdb(`shell du -s ${escapedDirPath}`);
-                // du -s output: "12345\t/path/to/dir" (size in KB)
-                const match = duOut.match(/^(\d+)/);
-                if (match) {
-                    const sizeKB = parseInt(match[1], 10);
-                    dir.size = sizeKB * 1024; // Convert KB to bytes
-                    dir.sizeFormatted = formatBytes(dir.size);
-                    // Cache the result
-                    folderSizeCache.set(dir.path, {
-                        mtime: dir.mtime,
-                        size: dir.size,
-                        sizeFormatted: dir.sizeFormatted
-                    });
-                }
-            } catch (e) {
-                // Keep original size if du fails
-            }
-        }));
     }
 
     // Default sort: folders first, then by name
@@ -193,6 +154,74 @@ app.get('/api/files', async (req, res) => {
     });
 
     res.json({ path: dirPath, files });
+});
+// Calculate folder sizes in background (SSE endpoint)
+app.get('/api/folder-sizes', async (req, res) => {
+    const folders = req.query.folders ? JSON.parse(req.query.folders) : [];
+
+    if (folders.length === 0) {
+        return res.status(400).json({ error: 'No folders provided' });
+    }
+
+    // Set up SSE
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    // Max concurrent calculations
+    const MAX_CONCURRENT = 5;
+    let activeCount = 0;
+    let completedCount = 0;
+    let folderIndex = 0;
+
+    const calculateAndSend = async (folderPath) => {
+        try {
+            const escapedPath = escapeShellPath(folderPath);
+            const { stdout } = await runAdb(`shell du -s ${escapedPath}`);
+            const match = stdout.match(/^(\d+)/);
+
+            if (match) {
+                const sizeKB = parseInt(match[1], 10);
+                const sizeBytes = sizeKB * 1024;
+                res.write(`data: ${JSON.stringify({
+                    path: folderPath,
+                    size: sizeBytes,
+                    sizeFormatted: formatBytes(sizeBytes)
+                })}\n\n`);
+            } else {
+                res.write(`data: ${JSON.stringify({ path: folderPath, size: 0, sizeFormatted: '--' })}\n\n`);
+            }
+        } catch (e) {
+            res.write(`data: ${JSON.stringify({ path: folderPath, size: 0, sizeFormatted: '--' })}\n\n`);
+        }
+    };
+
+    // Use a promise to manage the concurrent execution
+    await new Promise((resolve) => {
+        const startNext = () => {
+            // Start new tasks up to MAX_CONCURRENT
+            while (activeCount < MAX_CONCURRENT && folderIndex < folders.length) {
+                const currentFolder = folders[folderIndex++];
+                activeCount++;
+
+                calculateAndSend(currentFolder).finally(() => {
+                    activeCount--;
+                    completedCount++;
+
+                    if (completedCount === folders.length) {
+                        resolve();
+                    } else {
+                        startNext();
+                    }
+                });
+            }
+        };
+
+        startNext();
+    });
+
+    res.write('data: {"done": true}\n\n');
+    res.end();
 });
 
 // Helper to categorize files
