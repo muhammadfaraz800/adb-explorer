@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import {
     Folder, File, ArrowLeft, RefreshCw, Trash2, Download,
     Home, Eye, FileText, Image, Video, Music, AlertCircle,
-    ArrowUpDown, ArrowUp, ArrowDown
+    ArrowUpDown, ArrowUp, ArrowDown, Square, CheckSquare, X
 } from 'lucide-react'
 import MediaViewer from './MediaViewer'
 
@@ -16,6 +16,7 @@ export default function FileExplorer() {
     const [viewingFile, setViewingFile] = useState(null)
     const [sortBy, setSortBy] = useState('name') // name, size, date, type
     const [sortOrder, setSortOrder] = useState('asc') // asc, desc
+    const [selectedPaths, setSelectedPaths] = useState(new Set()) // Multi-select
 
     const fetchFiles = async (dirPath) => {
         setLoading(true)
@@ -39,6 +40,7 @@ export default function FileExplorer() {
 
     useEffect(() => {
         fetchFiles(path)
+        setSelectedPaths(new Set()) // Clear selection on path change
     }, [path])
 
     // Sorted files with memoization
@@ -150,6 +152,57 @@ export default function FileExplorer() {
             : <ArrowDown size={14} className="sort-icon active" />
     }
 
+    // Selection handlers
+    const toggleSelect = (filePath, e) => {
+        e.stopPropagation()
+        setSelectedPaths(prev => {
+            const next = new Set(prev)
+            if (next.has(filePath)) {
+                next.delete(filePath)
+            } else {
+                next.add(filePath)
+            }
+            return next
+        })
+    }
+
+    const selectAll = () => {
+        if (selectedPaths.size === sortedFiles.length) {
+            setSelectedPaths(new Set())
+        } else {
+            setSelectedPaths(new Set(sortedFiles.map(f => f.path)))
+        }
+    }
+
+    const clearSelection = () => setSelectedPaths(new Set())
+
+    const handleBulkDelete = async () => {
+        if (selectedPaths.size === 0) return
+        if (!confirm(`Delete ${selectedPaths.size} selected items?`)) return
+
+        for (const filePath of selectedPaths) {
+            try {
+                await fetch('http://localhost:3001/api/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filePath })
+                })
+            } catch (e) {
+                console.error('Delete failed:', filePath, e)
+            }
+        }
+        setSelectedPaths(new Set())
+        fetchFiles(path)
+    }
+
+    const handleBulkDownload = () => {
+        // Download each selected file (only files, not directories)
+        const filesToDownload = sortedFiles.filter(f => selectedPaths.has(f.path) && !f.isDirectory)
+        filesToDownload.forEach(file => {
+            window.open(`http://localhost:3001/api/view?path=${encodeURIComponent(file.path)}&download=true`, '_blank')
+        })
+    }
+
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
             {/* Media Viewer Modal */}
@@ -215,8 +268,31 @@ export default function FileExplorer() {
                     </div>
                 ) : (
                     <>
+                        {/* Selection Action Bar */}
+                        {selectedPaths.size > 0 && (
+                            <div className="selection-bar">
+                                <span className="selection-count">
+                                    {selectedPaths.size} selected
+                                </span>
+                                <button className="selection-action" onClick={handleBulkDownload} title="Download selected files">
+                                    <Download size={18} /> Download
+                                </button>
+                                <button className="selection-action delete" onClick={handleBulkDelete} title="Delete selected">
+                                    <Trash2 size={18} /> Delete
+                                </button>
+                                <button className="selection-action cancel" onClick={clearSelection} title="Clear selection">
+                                    <X size={18} />
+                                </button>
+                            </div>
+                        )}
+
                         {/* Sort Header */}
                         <div className="file-list-header">
+                            <button className="select-checkbox" onClick={selectAll} title="Select all">
+                                {selectedPaths.size === sortedFiles.length && sortedFiles.length > 0
+                                    ? <CheckSquare size={20} />
+                                    : <Square size={20} />}
+                            </button>
                             <div className="header-icon-spacer"></div>
                             <button className="sort-btn name" onClick={() => toggleSort('name')}>
                                 Name <SortIcon field="name" />
@@ -236,9 +312,17 @@ export default function FileExplorer() {
                         {sortedFiles.map((file) => (
                             <div
                                 key={file.path}
-                                className="file-item"
+                                className={`file-item ${selectedPaths.has(file.path) ? 'selected' : ''}`}
                                 onClick={() => file.isDirectory && navigate(file.path)}
                             >
+                                <button
+                                    className="select-checkbox"
+                                    onClick={(e) => toggleSelect(file.path, e)}
+                                >
+                                    {selectedPaths.has(file.path)
+                                        ? <CheckSquare size={20} />
+                                        : <Square size={20} />}
+                                </button>
                                 <div className={`icon-wrapper ${file.isDirectory ? 'folder' : (file.type || 'file')}`}>
                                     {file.isDirectory ? <Folder size={24} /> : getFileIcon(file)}
                                 </div>

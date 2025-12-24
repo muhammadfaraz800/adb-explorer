@@ -12,9 +12,16 @@ I created this project because my Android phone sometimes doesn't work with the 
 
 ### 📁 File Explorer
 - Browse directories and files on your Android device with a clean, intuitive interface
+- **Sortable columns**: Name, Size, Modified date, Type (with ascending/descending)
 - Visual file icons for different file types (images, videos, documents, etc.)
-- Breadcrumb navigation for easy path tracking
+- **Folder sizes**: Displays actual folder sizes with smart caching
 - History navigation with back button support
+
+### ✅ Multi-Select & Bulk Actions
+- **Checkbox selection** for files and folders
+- **Select All** checkbox in header
+- **Bulk Delete**: Delete multiple items at once
+- **Bulk Download**: Download multiple files simultaneously
 
 ### ⚡ High-Speed File Transfer
 - **Parallel chunk downloading** for large files (5-10GB)
@@ -40,14 +47,11 @@ I created this project because my Android phone sometimes doesn't work with the 
 
 ## 📸 Screenshots
 
-### Home Screen
-![Home Screen](assets/screenshots/HomeScreen.png)
+### File Explorer with Sortable Columns
+![File Explorer](assets/file-explorer.png)
 
-### File & Folder Navigation
-![Files and Folders](assets/screenshots/FileAndFolders.png)
-
-### Built-in Media Viewer
-![Built-in File Viewer](assets/screenshots/BuildInFileViewer.png)
+### Multi-Select with Bulk Actions
+![Multi-Select](assets/multi-select.png)
 
 ---
 

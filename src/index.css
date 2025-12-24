@@ -168,9 +168,88 @@ body {
   padding: 8px 16px;
 }
 
+/* Selection Action Bar */
+.selection-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, #1a73e8 0%, #8ab4f8 100%);
+  border-radius: 12px;
+  margin-bottom: 12px;
+}
+
+.selection-bar .selection-count {
+  font-size: 14px;
+  font-weight: 500;
+  color: white;
+  margin-right: auto;
+}
+
+.selection-bar .selection-action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.selection-bar .selection-action:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.selection-bar .selection-action.delete {
+  background: rgba(242, 139, 130, 0.3);
+}
+
+.selection-bar .selection-action.delete:hover {
+  background: rgba(242, 139, 130, 0.5);
+}
+
+.selection-bar .selection-action.cancel {
+  padding: 8px;
+  background: transparent;
+}
+
+/* Checkbox styles */
+.select-checkbox {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: #9aa0a6;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background-color 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.select-checkbox:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #e3e3e3;
+}
+
+.file-item.selected .select-checkbox {
+  color: #8ab4f8;
+}
+
+.file-item.selected {
+  background-color: rgba(138, 180, 248, 0.15);
+}
+
 .file-list-header {
   display: grid;
-  grid-template-columns: 40px 1fr 90px 160px 90px 120px;
+  grid-template-columns: 28px 40px 1fr 90px 160px 90px 120px;
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
@@ -254,7 +333,7 @@ body {
 /* File Item */
 .file-item {
   display: grid;
-  grid-template-columns: 40px 1fr 90px 160px 90px 120px;
+  grid-template-columns: 28px 40px 1fr 90px 160px 90px 120px;
   align-items: center;
   gap: 8px;
   padding: 12px 16px;
