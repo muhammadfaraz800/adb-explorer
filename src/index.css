@@ -1243,6 +1243,40 @@ body {
   font-weight: 500;
 }
 
+/* Age filter dropdown */
+.age-filter {
+  padding: 6px 12px;
+  border: 1px solid #5f6368;
+  border-radius: 6px;
+  background-color: #3c3c3c;
+  color: #e3e3e3;
+  font-size: 13px;
+  cursor: pointer;
+  margin-left: 12px;
+}
+
+.age-filter:hover {
+  border-color: #8ab4f8;
+}
+
+.age-filter:focus {
+  outline: none;
+  border-color: #8ab4f8;
+}
+
+/* Old files section icon */
+.section-icon.old {
+  background-color: rgba(253, 214, 99, 0.15);
+  color: #fdd663;
+}
+
+/* File date in old files section */
+.cleaner-file-item .file-date {
+  font-size: 12px;
+  color: #9aa0a6;
+  white-space: nowrap;
+}
+
 .select-all-btn {
   padding: 8px 16px;
   border: 1px solid #5f6368;
@@ -1403,4 +1437,29 @@ body {
 .cleaner-file-item .preview-btn:hover {
   background-color: rgba(138, 180, 248, 0.2);
   color: #8ab4f8;
+}
+
+/* Download button */
+.cleaner-file-item .download-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: #9aa0a6;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  opacity: 0;
+}
+
+.cleaner-file-item:hover .download-btn {
+  opacity: 1;
+}
+
+.cleaner-file-item .download-btn:hover {
+  background-color: rgba(129, 201, 149, 0.2);
+  color: #81c995;
 }
