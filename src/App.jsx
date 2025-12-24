@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
 import FileExplorer from './components/FileExplorer'
+import Cleaner from './components/Cleaner'
 import DownloadManager from './components/DownloadManager'
-import { Smartphone, RefreshCw, AlertTriangle } from 'lucide-react'
+import { Smartphone, RefreshCw, AlertTriangle, FolderOpen, Trash2 } from 'lucide-react'
 import './index.css'
 
 function App() {
   const [connectionStatus, setConnectionStatus] = useState('DISCONNECTED')
+  const [activeTab, setActiveTab] = useState('explorer') // 'explorer' or 'cleaner'
 
   useEffect(() => {
     checkConnection()
@@ -56,6 +58,26 @@ function App() {
           <h1>ADB Explorer</h1>
         </div>
 
+        {/* Tab Navigation */}
+        {connectionStatus === 'CONNECTED' && (
+          <div className="tab-nav">
+            <button
+              className={`tab-btn ${activeTab === 'explorer' ? 'active' : ''}`}
+              onClick={() => setActiveTab('explorer')}
+            >
+              <FolderOpen size={18} />
+              <span>Files</span>
+            </button>
+            <button
+              className={`tab-btn ${activeTab === 'cleaner' ? 'active' : ''}`}
+              onClick={() => setActiveTab('cleaner')}
+            >
+              <Trash2 size={18} />
+              <span>Cleaner</span>
+            </button>
+          </div>
+        )}
+
         <button
           className={`status-badge ${getStatusClass()}`}
           onClick={handleRetry}
@@ -71,7 +93,10 @@ function App() {
 
       <main className="main-content">
         {connectionStatus === 'CONNECTED' ? (
-          <FileExplorer />
+          <>
+            {activeTab === 'explorer' && <FileExplorer />}
+            {activeTab === 'cleaner' && <Cleaner />}
+          </>
         ) : (
           <div className="disconnected-state">
             <div className="icon">
@@ -129,3 +154,4 @@ function App() {
 }
 
 export default App
+

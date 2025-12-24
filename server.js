@@ -229,12 +229,116 @@ function getFileCategory(ext) {
     if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].includes(ext)) return 'image';
     if (['mp4', 'mkv', 'webm', 'avi', 'mov', 'm4v'].includes(ext)) return 'video';
     if (['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac'].includes(ext)) return 'audio';
-    if (['txt', 'log', 'json', 'xml', 'md', 'html', 'css', 'js'].includes(ext)) return 'document';
+    if (['txt', 'log', 'json', 'xml', 'md', 'html', 'css', 'js', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'].includes(ext)) return 'document';
     if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) return 'archive';
     if (['apk'].includes(ext)) return 'app';
-    if (['pdf'].includes(ext)) return 'pdf';
     return 'file';
 }
+
+// Scan for large files (for cleaner tab)
+app.get('/api/scan-large-files', async (req, res) => {
+    const basePath = req.query.path || '/sdcard';
+    const limit = parseInt(req.query.limit) || 20;
+
+    // Set up SSE for progress updates
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    const allFiles = [];
+    const dirsToScan = [basePath];
+    let scannedDirs = 0;
+
+    // Recursive scan using breadth-first approach
+    while (dirsToScan.length > 0) {
+        const currentDir = dirsToScan.shift();
+        scannedDirs++;
+
+        // Send progress update every 10 dirs
+        if (scannedDirs % 10 === 0) {
+            res.write(`data: ${JSON.stringify({ type: 'progress', scanned: scannedDirs, found: allFiles.length })}\n\n`);
+        }
+
+        try {
+            const pathWithSlash = currentDir.endsWith('/') ? currentDir : currentDir + '/';
+            const escapedPath = escapeShellPath(pathWithSlash);
+            const { stdout, error } = await runAdb(`shell ls -la ${escapedPath}`);
+
+            if (error) continue;
+
+            const lines = stdout.split(/[\r\n]+/).filter(Boolean);
+
+            for (const line of lines) {
+                if (line.startsWith('total') || line.trim() === '') continue;
+
+                const parts = line.split(/\s+/);
+                if (parts.length < 8) continue;
+
+                const permissions = parts[0];
+                const size = parseInt(parts[4], 10) || 0;
+                const dateStr = parts[5];
+                const timeStr = parts[6];
+                const name = parts.slice(7).join(' ');
+
+                if (name === '.' || name === '..') continue;
+                if (name.startsWith('.')) continue; // Skip hidden
+
+                const isDirectory = permissions.startsWith('d');
+                const isLink = permissions.startsWith('l');
+                const displayName = isLink ? name.split(' -> ')[0] : name;
+                const fullPath = currentDir === '/' ? `/${displayName}` : `${currentDir}/${displayName}`;
+
+                if (isDirectory) {
+                    // Add to scan queue (skip some known large system folders)
+                    if (!displayName.match(/^(Android|obb|data)$/i)) {
+                        dirsToScan.push(fullPath);
+                    }
+                } else if (size > 0) {
+                    const ext = displayName.includes('.') ? displayName.split('.').pop().toLowerCase() : '';
+                    let mtime = 0;
+                    try {
+                        mtime = new Date(`${dateStr}T${timeStr}:00`).getTime();
+                    } catch (e) {
+                        mtime = Date.now();
+                    }
+
+                    allFiles.push({
+                        name: displayName,
+                        path: fullPath,
+                        size,
+                        sizeFormatted: formatBytes(size),
+                        type: getFileCategory(ext),
+                        extension: ext,
+                        mtime,
+                        mtimeFormatted: new Date(mtime).toLocaleString()
+                    });
+                }
+            }
+        } catch (e) {
+            // Continue on error
+        }
+    }
+
+    // Sort all files by size descending
+    allFiles.sort((a, b) => b.size - a.size);
+
+    // Group by category
+    const results = {
+        all: allFiles.slice(0, limit),
+        videos: allFiles.filter(f => f.type === 'video').slice(0, limit),
+        images: allFiles.filter(f => f.type === 'image').slice(0, limit),
+        documents: allFiles.filter(f => f.type === 'document').slice(0, limit),
+        audio: allFiles.filter(f => f.type === 'audio').slice(0, limit),
+        archives: allFiles.filter(f => f.type === 'archive').slice(0, limit),
+        apps: allFiles.filter(f => f.type === 'app').slice(0, limit),
+        totalScanned: allFiles.length,
+        totalSize: allFiles.reduce((sum, f) => sum + f.size, 0),
+        totalSizeFormatted: formatBytes(allFiles.reduce((sum, f) => sum + f.size, 0))
+    };
+
+    res.write(`data: ${JSON.stringify({ type: 'complete', results })}\n\n`);
+    res.end();
+});
 
 // Delete file/dir
 app.post('/api/delete', async (req, res) => {
