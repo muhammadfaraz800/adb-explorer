@@ -289,10 +289,8 @@ app.get('/api/scan-large-files', async (req, res) => {
                 const fullPath = currentDir === '/' ? `/${displayName}` : `${currentDir}/${displayName}`;
 
                 if (isDirectory) {
-                    // Add to scan queue (skip some known large system folders)
-                    if (!displayName.match(/^(Android|obb|data)$/i)) {
-                        dirsToScan.push(fullPath);
-                    }
+                    // Add to scan queue (scan all folders including Android)
+                    dirsToScan.push(fullPath);
                 } else if (size > 0) {
                     const ext = displayName.includes('.') ? displayName.split('.').pop().toLowerCase() : '';
                     let mtime = 0;
