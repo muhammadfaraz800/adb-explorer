@@ -4,6 +4,7 @@ import { exec } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import multer from 'multer';
 import { createDownloadJob, getDownloadJob, getAllDownloads, removeDownloadJob } from './downloadManager.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -14,6 +15,24 @@ app.use(cors());
 app.use(express.json());
 
 const PORT = 3001;
+
+// Configure multer for file uploads
+const uploadDir = path.join(__dirname, 'temp_uploads');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+        // Preserve original filename
+        cb(null, file.originalname);
+    }
+});
+
+const upload = multer({ storage });
 
 // Escape path for Android shell (inside adb shell command)
 // Use single quotes and escape any existing single quotes in the path
@@ -354,6 +373,68 @@ app.post('/api/delete', async (req, res) => {
         return res.status(500).json({ error: stderr });
     }
     res.json({ success: true, stdout });
+});
+
+// Upload files to Android device
+app.post('/api/upload', upload.array('files'), async (req, res) => {
+    const targetPath = req.body.targetPath || '/sdcard';
+    const files = req.files;
+
+    if (!files || files.length === 0) {
+        return res.status(400).json({ error: 'No files provided' });
+    }
+
+    const results = [];
+    const errors = [];
+
+    for (const file of files) {
+        const localPath = file.path;
+        const remotePath = `${targetPath}/${file.originalname}`;
+
+        try {
+            // Use adb push to transfer file
+            const { stdout, stderr, error } = await runAdb(`push "${localPath}" "${remotePath}"`);
+
+            if (error && stderr && !stderr.includes('pushed')) {
+                errors.push({ file: file.originalname, error: stderr });
+            } else {
+                results.push({ file: file.originalname, path: remotePath, success: true });
+            }
+        } catch (e) {
+            errors.push({ file: file.originalname, error: e.message });
+        } finally {
+            // Clean up temp file
+            try {
+                fs.unlinkSync(localPath);
+            } catch (e) {
+                // Ignore cleanup errors
+            }
+        }
+    }
+
+    res.json({
+        success: errors.length === 0,
+        uploaded: results,
+        errors: errors
+    });
+});
+
+// Create folder on Android device
+app.post('/api/mkdir', async (req, res) => {
+    const { folderPath } = req.body;
+
+    if (!folderPath) {
+        return res.status(400).json({ error: 'No folder path provided' });
+    }
+
+    const escapedPath = escapeShellPath(folderPath);
+    const { stdout, stderr, error } = await runAdb(`shell mkdir -p ${escapedPath}`);
+
+    if (error && stderr) {
+        return res.status(500).json({ error: stderr });
+    }
+
+    res.json({ success: true, path: folderPath });
 });
 
 // View/Download file

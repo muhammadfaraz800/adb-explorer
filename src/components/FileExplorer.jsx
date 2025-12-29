@@ -2,9 +2,11 @@ import { useState, useEffect, useMemo } from 'react'
 import {
     Folder, File, ArrowLeft, RefreshCw, Trash2, Download,
     Home, Eye, EyeOff, FileText, Image, Video, Music, AlertCircle,
-    ArrowUpDown, ArrowUp, ArrowDown, Square, CheckSquare, X
+    ArrowUpDown, ArrowUp, ArrowDown, Square, CheckSquare, X,
+    Upload, FolderPlus
 } from 'lucide-react'
 import MediaViewer from './MediaViewer'
+import UploadModal from './UploadModal'
 
 export default function FileExplorer() {
     const [path, setPath] = useState('/sdcard')
@@ -18,6 +20,9 @@ export default function FileExplorer() {
     const [sortOrder, setSortOrder] = useState('asc') // asc, desc
     const [selectedPaths, setSelectedPaths] = useState(new Set()) // Multi-select
     const [showHidden, setShowHidden] = useState(false) // Show/hide hidden files
+    const [showUploadModal, setShowUploadModal] = useState(false)
+    const [showNewFolderDialog, setShowNewFolderDialog] = useState(false)
+    const [newFolderName, setNewFolderName] = useState('')
 
     const fetchFiles = async (dirPath) => {
         setLoading(true)
@@ -238,6 +243,32 @@ export default function FileExplorer() {
         })
     }
 
+    // Create new folder
+    const handleCreateFolder = async () => {
+        if (!newFolderName.trim()) return
+
+        const folderPath = path === '/' ? `/${newFolderName}` : `${path}/${newFolderName}`
+
+        try {
+            const res = await fetch('http://localhost:3001/api/mkdir', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ folderPath })
+            })
+
+            if (res.ok) {
+                setNewFolderName('')
+                setShowNewFolderDialog(false)
+                fetchFiles(path)
+            } else {
+                const data = await res.json()
+                alert('Failed: ' + data.error)
+            }
+        } catch (e) {
+            alert(e.message)
+        }
+    }
+
     // Get list of media files for navigation in viewer
     const mediaFiles = useMemo(() => {
         return sortedFiles.filter(f => !f.isDirectory && /\.(jpg|jpeg|png|gif|webp|svg|bmp|mp4|mkv|webm|avi|mov|m4v|mp3|wav|ogg|flac|m4a|aac)$/i.test(f.name))
@@ -254,6 +285,40 @@ export default function FileExplorer() {
                     onNavigate={(file) => setViewingFile(file)}
                     onDelete={() => fetchFiles(path)}
                 />
+            )}
+
+            {/* Upload Modal */}
+            {showUploadModal && (
+                <UploadModal
+                    targetPath={path}
+                    onClose={() => setShowUploadModal(false)}
+                    onUploadComplete={() => fetchFiles(path)}
+                />
+            )}
+
+            {/* New Folder Dialog */}
+            {showNewFolderDialog && (
+                <div className="new-folder-overlay" onClick={() => setShowNewFolderDialog(false)}>
+                    <div className="new-folder-dialog" onClick={e => e.stopPropagation()}>
+                        <h3><FolderPlus size={20} /> New Folder</h3>
+                        <input
+                            type="text"
+                            value={newFolderName}
+                            onChange={(e) => setNewFolderName(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleCreateFolder()}
+                            placeholder="Folder name..."
+                            autoFocus
+                        />
+                        <div className="new-folder-actions">
+                            <button className="btn btn-secondary" onClick={() => setShowNewFolderDialog(false)}>
+                                Cancel
+                            </button>
+                            <button className="btn btn-primary" onClick={handleCreateFolder} disabled={!newFolderName.trim()}>
+                                Create
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
 
             {/* Path Bar */}
@@ -300,8 +365,27 @@ export default function FileExplorer() {
                     >
                         {showHidden ? <Eye size={20} /> : <EyeOff size={20} />}
                     </button>
+
+                    <div className="path-bar-divider"></div>
+
+                    <button
+                        className="icon-btn"
+                        onClick={() => setShowNewFolderDialog(true)}
+                        title="New Folder"
+                    >
+                        <FolderPlus size={20} />
+                    </button>
+
+                    <button
+                        className="icon-btn upload-btn"
+                        onClick={() => setShowUploadModal(true)}
+                        title="Upload Files"
+                    >
+                        <Upload size={20} />
+                    </button>
                 </div>
             </div>
+
 
             {/* File List */}
             <div className="file-list">
